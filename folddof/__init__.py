@@ -16,7 +16,7 @@
 # @Filename: __init__.py
 # @Email:  zhuzefeng@stu.pku.edu.cn
 # @Author: Zefeng Zhu
-# @Last Modified: 2025-04-25 05:24:56 pm
+# @Last Modified: 2025-04-29 09:48:51 pm
 import torch
 import numpy as np
 from typing import Union, Optional, Literal
@@ -52,6 +52,8 @@ def to_backbone(rots: torch.Tensor,
                 mode: Literal[to_bb_mode.Pep_GlobalRots_GlobalTrans, to_bb_mode.Pep_GlobalRots_IsoRots, to_bb_mode.Pep_RelativeRots_IsoRots],
                 aatype: Optional[Union[torch.Tensor, np.ndarray]] = None,
                 with_cb: bool = False,
+                init_global_rots: Optional[torch.Tensor] = None,
+                init_global_trans: Optional[torch.Tensor] = None,
                 ):
     '''
     input shape: B x L x ...
@@ -59,6 +61,8 @@ def to_backbone(rots: torch.Tensor,
     '''
     
     # TODO: make use of aatype
+
+    if init_global_trans is not None: init_global_trans = init_global_trans.transpose(0, 1)
     
     if mode == to_bb_mode.Pep_GlobalRots_GlobalTrans:
         global_rots, global_trans = rots, trans_or_loc_ca_ia1_wrt_n_ia1
@@ -67,15 +71,17 @@ def to_backbone(rots: torch.Tensor,
     elif mode == to_bb_mode.Pep_GlobalRots_IsoRots:
         global_rots = rots
         loc_ca_ia1_wrt_n_ia1 = trans_or_loc_ca_ia1_wrt_n_ia1
-        bb_coords = PeptideUnitFrame.to_W_batch_avg_backbone_addter_via_rotmat(global_rots.transpose(0, 1), loc_ca_ia1_wrt_n_ia1.transpose(0, 1)).permute(2, 0, 1, 3)
+        bb_coords = PeptideUnitFrame.to_W_batch_avg_backbone_addter_via_rotmat(global_rots.transpose(0, 1), loc_ca_ia1_wrt_n_ia1.transpose(0, 1), init_global_trans=init_global_trans).permute(2, 0, 1, 3)
     
     elif mode == to_bb_mode.Pep_RelativeRots_IsoRots:
         global_rots = mat_cumops(rots.clone(), 1)
         global_rots = torch.cat((
             torch.eye(3, device=global_rots.device, dtype=global_rots.dtype).unsqueeze(0).expand(global_rots.shape[0], -1, -1).unsqueeze(1),
             global_rots), dim=1)
+        if init_global_rots is not None:
+            global_rots = init_global_rots @ global_rots
         loc_ca_ia1_wrt_n_ia1 = trans_or_loc_ca_ia1_wrt_n_ia1
-        bb_coords = PeptideUnitFrame.to_W_batch_avg_backbone_addter_via_rotmat(global_rots.transpose(0, 1), loc_ca_ia1_wrt_n_ia1.transpose(0, 1)).permute(2, 0, 1, 3)
+        bb_coords = PeptideUnitFrame.to_W_batch_avg_backbone_addter_via_rotmat(global_rots.transpose(0, 1), loc_ca_ia1_wrt_n_ia1.transpose(0, 1), init_global_trans=init_global_trans).permute(2, 0, 1, 3)
     
     elif mode == to_bb_mode.Res_GlobalRots_GlobalTrans:
         raise NotImplementedError('TODO.')

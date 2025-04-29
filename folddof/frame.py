@@ -16,7 +16,7 @@
 # @Filename: frame.py
 # @Email:  zhuzefeng@stu.pku.edu.cn
 # @Author: Zefeng Zhu
-# @Last Modified: 2025-04-25 05:23:34 pm
+# @Last Modified: 2025-04-29 09:24:54 pm
 from typing import Union, List, Optional
 import math
 import torch
@@ -351,13 +351,14 @@ class PeptideUnitFrame(FrameClass):
                            #L(xB)x4x3, dim=2
     
     @classmethod
-    def to_W_batch_avg_backbone_addter_via_rotmat(cls, frame_rotmat: torch.Tensor, loc_ca_ia1_wrt_n_ia1: torch.Tensor, stack_dim: int = 1):
+    def to_W_batch_avg_backbone_addter_via_rotmat(cls, frame_rotmat: torch.Tensor, loc_ca_ia1_wrt_n_ia1: torch.Tensor, init_global_trans: Optional[torch.Tensor] = None, stack_dim: int = 1):
         '''
         NOTE: input shape: L(xB)x...
         '''
         tensor_kwargs = dict(dtype=frame_rotmat.dtype, device=frame_rotmat.device)
         avg_loc_o_i = torch.tensor(DEF_LOC['o_i'], **tensor_kwargs).expand(*frame_rotmat.shape[:-2], -1)
         reconstruct_ori, avg_loc_n_ia1, loc_ca_i = cls.to_W_batch_avg_ori_via_rotmat(frame_rotmat, loc_ca_ia1_wrt_n_ia1)
+        if init_global_trans is not None: reconstruct_ori = reconstruct_ori + init_global_trans
         to_W_pos = lambda some_loc_coords: torch.einsum('...ij,...j->...i', frame_rotmat, some_loc_coords) + reconstruct_ori
         return torch.stack([
             to_W_pos(avg_loc_n_ia1)[:-1],  #rebuilt_backbone[0] N
