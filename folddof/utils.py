@@ -16,7 +16,7 @@
 # @Filename: frame.py
 # @Email:  zhuzefeng@stu.pku.edu.cn
 # @Author: Zefeng Zhu
-# @Last Modified: 2025-04-30 05:30:07 pm
+# @Last Modified: 2025-04-30 08:47:19 pm
 import torch
 import roma
 import math
@@ -241,12 +241,15 @@ def unitquat_slerp_fast(q0, q1, steps, shortest_arc=True, align_batch=False):
         cos_omega = torch.abs(cos_omega)
     # True when q0 and q1 are close.
     nearby_quaternions = cos_omega > (1.0 - 1e-3)
-    
-    steps_shape = steps.shape
 
     if align_batch:
         # Ensure steps can broadcast to q0's batch dimension
-        steps = steps.reshape_as(cos_omega)  # Force shape [A] if steps is scalar
+        if steps.dim() == 0:  # Check if steps is a scalar tensor
+            steps = steps.unsqueeze(0).expand_as(cos_omega)
+        elif steps.dim() == 1 and steps.shape[0] == 1:
+            steps = steps.expand_as(cos_omega)
+        else:
+            steps = steps.reshape_as(cos_omega)
         
         # Reshape tensors for element-wise operations
         cos_omega = cos_omega.unsqueeze(-1)  # [A, 1]
@@ -289,8 +292,7 @@ def unitquat_slerp_fast(q0, q1, steps, shortest_arc=True, align_batch=False):
     
     # Normalize and reshape
     q = roma.quat_normalize(q)
-    return q.reshape(steps_shape + (4,)) if align_batch else q.reshape(steps.shape + batch_shape + (4,))
-
+    return q.reshape(batch_shape + (4,)) if align_batch else q.reshape(steps.shape + batch_shape + (4,))
 
 def pdist_(X: torch.Tensor, squared: bool = False, eps_in_sqrt: float = 1e-8):
     assert len(X.shape) == 2
