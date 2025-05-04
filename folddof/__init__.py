@@ -16,7 +16,7 @@
 # @Filename: __init__.py
 # @Email:  zhuzefeng@stu.pku.edu.cn
 # @Author: Zefeng Zhu
-# @Last Modified: 2025-04-29 09:48:51 pm
+# @Last Modified: 2025-05-04 03:54:14 pm
 import torch
 import numpy as np
 from typing import Union, Optional, Literal
@@ -74,7 +74,7 @@ def to_backbone(rots: torch.Tensor,
         bb_coords = PeptideUnitFrame.to_W_batch_avg_backbone_addter_via_rotmat(global_rots.transpose(0, 1), loc_ca_ia1_wrt_n_ia1.transpose(0, 1), init_global_trans=init_global_trans).permute(2, 0, 1, 3)
     
     elif mode == to_bb_mode.Pep_RelativeRots_IsoRots:
-        global_rots = mat_cumops(rots.clone(), 1)
+        global_rots = mat_cumops(rots, 1)
         global_rots = torch.cat((
             torch.eye(3, device=global_rots.device, dtype=global_rots.dtype).unsqueeze(0).expand(global_rots.shape[0], -1, -1).unsqueeze(1),
             global_rots), dim=1)

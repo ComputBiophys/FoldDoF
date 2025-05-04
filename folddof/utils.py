@@ -16,7 +16,7 @@
 # @Filename: frame.py
 # @Email:  zhuzefeng@stu.pku.edu.cn
 # @Author: Zefeng Zhu
-# @Last Modified: 2025-04-30 08:47:19 pm
+# @Last Modified: 2025-05-04 04:26:56 pm
 import torch
 import roma
 import math
@@ -116,7 +116,7 @@ def quat_apply(quaternion: torch.Tensor, point: torch.Tensor) -> torch.Tensor:
     return rpoint[..., :-1]
 
 
-def quat_cumprod_sequential_since_py38(quaternion: torch.Tensor, add_head: bool = False) -> torch.Tensor:
+def quat_cumprod_sequential_since_py38(quaternion: torch.Tensor, add_head: bool = False, normalize: bool = False) -> torch.Tensor:
     '''
     Returns the cumulative product of a sequence of quaternions.
 
@@ -126,11 +126,11 @@ def quat_cumprod_sequential_since_py38(quaternion: torch.Tensor, add_head: bool 
     Returns:
         batch of quaternions (...x4 tensor, XYZW convention).
     '''
-    prod_res = list(accumulate(quaternion, roma.quat_product, initial=torch.tensor([0., 0., 0., 1.], dtype=quaternion.dtype, device=quaternion.device) if add_head else None))
+    prod_res = list(accumulate(quaternion, lambda x, y: torch.nn.functional.normalize(roma.quat_product(x, y), dim=-1) if normalize else roma.quat_product, initial=torch.tensor([0., 0., 0., 1.], dtype=quaternion.dtype, device=quaternion.device) if add_head else None))
     return torch.stack(prod_res, dim=0)
 
 
-def quat_cumprod_sequential_before_py38(quaternion: torch.Tensor, add_head: bool = False) -> torch.Tensor:
+def quat_cumprod_sequential_before_py38(quaternion: torch.Tensor, add_head: bool = False, normalize: bool = False) -> torch.Tensor:
     '''
     Returns the cumulative product of a sequence of quaternions.
 
@@ -140,7 +140,7 @@ def quat_cumprod_sequential_before_py38(quaternion: torch.Tensor, add_head: bool
     Returns:
         batch of quaternions (...x4 tensor, XYZW convention).
     '''
-    prod_res = list(accumulate(quaternion, roma.quat_product))
+    prod_res = list(accumulate(quaternion, lambda x, y: torch.nn.functional.normalize(roma.quat_product(x, y), dim=-1) if normalize else roma.quat_product))
     if add_head:
         prod_res.insert(0, torch.tensor([0., 0., 0., 1.], dtype=quaternion.dtype, device=quaternion.device))
     return torch.stack(prod_res, dim=0) 
@@ -149,7 +149,7 @@ def quat_cumprod_sequential_before_py38(quaternion: torch.Tensor, add_head: bool
 quat_cumprod_sequential = quat_cumprod_sequential_before_py38 if sys.version_info.minor < 8 else quat_cumprod_sequential_since_py38
 
 
-def quat_cumprod(quaternion: torch.Tensor, add_head: bool = True, normalize: bool = True) -> torch.Tensor:
+def quat_cumprod_(quaternion: torch.Tensor, add_head: bool = True, normalize: bool = True) -> torch.Tensor:
     '''
     Returns the cumulative product of a sequence of quaternions. Parallelized via binary merge.
 
@@ -203,10 +203,22 @@ def quat_cumprod(quaternion: torch.Tensor, add_head: bool = True, normalize: boo
     return reconstruct_quaternion
 
 
+def quat_cumprod(input: torch.Tensor, dim: int, normalize: bool = True):
+    L, v = input.shape[dim], input.clone()
+    n_func = lambda x: torch.nn.functional.normalize(x, dim=-1) if normalize else lambda x: x
+    assert dim not in (-1, v.shape[-1]), "Invalid dim"
+    for i in torch.pow(2, torch.arange(math.log2(L)+1, device=v.device, dtype=torch.int64)):
+        if i > L: break
+        index = torch.arange(i, L, device=v.device)
+        if index.numel() == 0: continue
+        v.index_copy_(dim, index, n_func(roma.quat_product(v.index_select(dim, index - i), v.index_select(dim, index)))) # related to: https://github.com/pypose/pypose/issues/346
+    return v
+
+
 def mat_cumops(input: torch.Tensor, dim: int, ops = lambda a, b : b @ a):
     '''modified from https://github.com/pypose/pypose/blob/main/pypose/lietensor/basics.py'''
-    L, v = input.shape[dim], input
-    assert dim != -1 or dim != v.shape[-1], "Invalid dim"
+    L, v = input.shape[dim], input.clone()
+    assert dim not in (-1, v.shape[-1]), "Invalid dim"
     for i in torch.pow(2, torch.arange(math.log2(L)+1, device=v.device, dtype=torch.int64)):
         index = torch.arange(i, L, device=v.device, dtype=torch.int64)
         v.index_copy_(dim, index, ops(v.index_select(dim, index), v.index_select(dim, index-i)))
@@ -291,7 +303,7 @@ def unitquat_slerp_fast(q0, q1, steps, shortest_arc=True, align_batch=False):
         q = alpha * q0_bc + beta * q1_bc
     
     # Normalize and reshape
-    q = roma.quat_normalize(q)
+    q = torch.nn.functional.normalize(q, dim=-1)
     return q.reshape(batch_shape + (4,)) if align_batch else q.reshape(steps.shape + batch_shape + (4,))
 
 def pdist_(X: torch.Tensor, squared: bool = False, eps_in_sqrt: float = 1e-8):

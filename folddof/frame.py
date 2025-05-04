@@ -16,7 +16,7 @@
 # @Filename: frame.py
 # @Email:  zhuzefeng@stu.pku.edu.cn
 # @Author: Zefeng Zhu
-# @Last Modified: 2025-04-29 09:24:54 pm
+# @Last Modified: 2025-05-04 04:32:52 pm
 from typing import Union, List, Optional
 import math
 import torch
@@ -323,6 +323,7 @@ class PeptideUnitFrame(FrameClass):
     def to_W_batch_avg_ori(cls, frame_q: torch.Tensor, loc_ca_ia1_wrt_n_ia1: torch.Tensor):
         '''
         NOTE: input shape: L(xB)x...
+        TODO: update_mask: Optional[torch.Tensor] = None, fix_ori: Optional[torch.Tensor] = None
         '''
         tensor_kwargs = dict(dtype=frame_q.dtype, device=frame_q.device)
         avg_loc_n_ia1 = torch.tensor(DEF_LOC['n_ia1'], **tensor_kwargs).expand(*frame_q.shape[:-1], -1)
