@@ -16,7 +16,7 @@
 # @Filename: frame.py
 # @Email:  zhuzefeng@stu.pku.edu.cn
 # @Author: Zefeng Zhu
-# @Last Modified: 2025-05-12 11:40:37 am
+# @Last Modified: 2025-05-24 11:46:59 am
 from typing import Union, List, Optional
 import math
 import torch
@@ -264,6 +264,18 @@ class PeptideUnitFrame(FrameClass):
         reconstruct_mean_ori = self.get_reconstruct_ori(loc_ca_i, loc_ca_ia1)
         avg_loc_frame = PeptideUnitFrame(reconstruct_mean_ori, self.frame_q, self.is_trans)
         return avg_loc_frame.to_W_pos(avg_loc_o_i), avg_loc_frame.to_W_pos(avg_loc_n_ia1)
+    
+    @staticmethod
+    def whether_is_trans(loc_ca_ia1_wrt_n_ia1: torch.Tensor, using_def_loc=DEF_LOC, wrt_n_ia1: bool = True):
+        tensor_kwargs = dict(device=loc_ca_ia1_wrt_n_ia1.device, dtype=loc_ca_ia1_wrt_n_ia1.dtype)
+        if wrt_n_ia1:
+            loc_n_ia1 = torch.tensor(using_def_loc['n_ia1'], **tensor_kwargs)
+            local_ca_ia1 = loc_ca_ia1_wrt_n_ia1 + loc_n_ia1
+        else:
+            local_ca_ia1 = loc_ca_ia1_wrt_n_ia1
+        dist2trans = (local_ca_ia1 - torch.tensor(using_def_loc['ca_ia1_is_trans'], **tensor_kwargs)).norm(dim=1)
+        dist2cis = (local_ca_ia1 - torch.tensor(using_def_loc['ca_ia1_is_cis'], **tensor_kwargs)).norm(dim=1)
+        return dist2trans <= dist2cis
     
     def update_is_trans(self, local_ca_ia1: torch.Tensor):
         # TODO: use the geodesics on the 2-sphere? (Related to the Fréchet Mean.)

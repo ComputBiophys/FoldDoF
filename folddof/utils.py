@@ -16,7 +16,7 @@
 # @Filename: frame.py
 # @Email:  zhuzefeng@stu.pku.edu.cn
 # @Author: Zefeng Zhu
-# @Last Modified: 2025-05-11 08:19:54 pm
+# @Last Modified: 2025-05-24 03:00:54 pm
 import torch
 import roma
 import math
@@ -520,3 +520,27 @@ def clamp_tensor_norm(tensor, dim, vmin, vmax):
     clamped_norm = torch.clamp(clamped_norm, min=1e-5)
     return tensor / original_norm * clamped_norm
 
+
+def cis_aff_sample(choices, existing, rng, mix_factor: float = 0.6, dist_aff_ex: float = 0.8, dist_rep_ex: float = 3):
+    if (existing.shape[0] > 0):
+        choices = np.array(sorted(set(choices) - set(existing)))
+        dist = np.abs(choices[None] - existing[:, None]).min(axis=0)
+        s_prob = 1/(dist**dist_aff_ex) if (rng.random(1)[0] > mix_factor) else (dist**dist_rep_ex)
+        s_prob = s_prob/s_prob.sum()
+    else:
+        s_prob = None
+    return rng.choice(choices, p=s_prob, replace=False)
+
+
+def sample_cis_pep_loc(length: np.ndarray, 
+                       cis_pep_count_label: np.ndarray, cis_pep_count_prob: np.ndarray, 
+                       rng = np.random):
+    assert len(length.shape) == 1
+    cis_pep_loc = np.zeros((length.shape[0], cis_pep_count_label.max()), dtype=np.int64)
+    sample_cis_count = rng.choice(cis_pep_count_label, size=length.shape[0], replace=True, p=cis_pep_count_prob)
+    for count in cis_pep_count_label:
+        todo = sample_cis_count > count
+        if todo.any():
+            sampled_loc = [cis_aff_sample(range(1, L), existing, rng=rng) for L, existing in zip(length[todo], cis_pep_loc[todo, :count])]
+            cis_pep_loc[todo, count] = sampled_loc
+    return [sorted({loc for loc in item if loc != 0}) for item in cis_pep_loc.tolist()]
