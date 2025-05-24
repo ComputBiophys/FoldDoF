@@ -16,7 +16,7 @@
 # @Filename: frame.py
 # @Email:  zhuzefeng@stu.pku.edu.cn
 # @Author: Zefeng Zhu
-# @Last Modified: 2025-05-24 11:46:59 am
+# @Last Modified: 2025-05-24 06:58:41 pm
 from typing import Union, List, Optional
 import math
 import torch
@@ -273,9 +273,22 @@ class PeptideUnitFrame(FrameClass):
             local_ca_ia1 = loc_ca_ia1_wrt_n_ia1 + loc_n_ia1
         else:
             local_ca_ia1 = loc_ca_ia1_wrt_n_ia1
-        dist2trans = (local_ca_ia1 - torch.tensor(using_def_loc['ca_ia1_is_trans'], **tensor_kwargs)).norm(dim=1)
-        dist2cis = (local_ca_ia1 - torch.tensor(using_def_loc['ca_ia1_is_cis'], **tensor_kwargs)).norm(dim=1)
+        dist2trans = (local_ca_ia1 - torch.tensor(using_def_loc['ca_ia1_is_trans'], **tensor_kwargs)).norm(dim=-1)
+        dist2cis = (local_ca_ia1 - torch.tensor(using_def_loc['ca_ia1_is_cis'], **tensor_kwargs)).norm(dim=-1)
         return dist2trans <= dist2cis
+    
+    @classmethod
+    def to_avg_loc_ca_ia1_wrt_n_ia1(cls, loc_ca_ia1_wrt_n_ia1: torch.Tensor):
+        tensor_kwargs = dict(device=loc_ca_ia1_wrt_n_ia1.device, dtype=loc_ca_ia1_wrt_n_ia1.dtype)
+        is_trans = cls.whether_is_trans(loc_ca_ia1_wrt_n_ia1)
+        avg_loc_ca_ia1_wrt_n_ia1_is_trans = torch.tensor(DEF_LOC['ca_ia1_is_trans'], **tensor_kwargs) - torch.tensor(DEF_LOC['n_ia1'], **tensor_kwargs)
+        avg_loc_ca_ia1_wrt_n_ia1_is_cis = torch.tensor(DEF_LOC['ca_ia1_is_cis'], **tensor_kwargs) - torch.tensor(DEF_LOC['n_ia1'], **tensor_kwargs)
+        #avg_loc_ca_ia1_wrt_n_ia1 = avg_loc_ca_ia1_wrt_n_ia1_is_trans.unsqueeze(0).repeat(loc_ca_ia1_wrt_n_ia1.shape[0], 1)
+        #avg_loc_ca_ia1_wrt_n_ia1[~is_trans] = avg_loc_ca_ia1_wrt_n_ia1_is_cis
+        avg_loc_ca_ia1_wrt_n_ia1 = torch.zeros_like(loc_ca_ia1_wrt_n_ia1)
+        avg_loc_ca_ia1_wrt_n_ia1[is_trans] = avg_loc_ca_ia1_wrt_n_ia1_is_trans
+        avg_loc_ca_ia1_wrt_n_ia1[~is_trans] = avg_loc_ca_ia1_wrt_n_ia1_is_cis
+        return avg_loc_ca_ia1_wrt_n_ia1
     
     def update_is_trans(self, local_ca_ia1: torch.Tensor):
         # TODO: use the geodesics on the 2-sphere? (Related to the Fréchet Mean.)
