@@ -16,11 +16,13 @@
 # @Filename: io.py
 # @Email:  zhuzefeng@stu.pku.edu.cn
 # @Author: Zefeng Zhu
-# @Last Modified: 2025-04-24 11:04:20 am
-from typing import Sequence
+# @Last Modified: 2025-09-09 04:03:21 pm
+from typing import Sequence, Optional
 import gemmi
 import torch
 from collections import defaultdict
+from pdbecif.mmcif_io import CifFileWriter
+from .data import AA_SIDECHAIN_ATOMS, AA_THREE2ONE_MOD
 
 
 def wrap_res_get_atom(res, atom:str):
@@ -73,6 +75,27 @@ def get_coords_with_mask(chain: Sequence[gemmi.Residue], atoms: Sequence[str] = 
         return coords.transpose(0, 1), masks.transpose(0, 1)
 
 
+def get_sidechain_coords(chain: Sequence[gemmi.Residue], length: Optional[int] = None, dtype=torch.float, numres_first: bool = True, **kwargs):
+    """
+    Returns:
+        sidechain_coords (torch.Tensor): shape(NumRes x NumAtom(i.e. 10) x 3)
+        sidechain_coords_mask (torch.Tensor): shape(NumRes x NumAtom(i.e. 10) x 3)
+    """
+    if length is None: length = len(chain)
+    sidechain_coords = torch.zeros((length, 10, 3), dtype=dtype, **kwargs)
+    sidechain_coords_mask = torch.zeros_like(sidechain_coords[:,:,0], dtype=torch.bool)
+    for res_idx, res_ in enumerate(chain):
+        res = wrap_res_atomgroup(res_)
+        for atom_idx, atom_name in enumerate(AA_SIDECHAIN_ATOMS.get(res_.name, 'GLY')):
+            if atom_name in res:
+                sidechain_coords[res_idx, atom_idx] = torch.tensor(res[atom_name], device=sidechain_coords.device)  # [0].pos.tolist()
+                sidechain_coords_mask[res_idx, atom_idx] = True
+    if numres_first:
+        return sidechain_coords, sidechain_coords_mask
+    else:
+        return sidechain_coords.transpose(0, 1), sidechain_coords_mask.transpose(0, 1)
+
+
 def savebb2pdb(seq: Sequence[str], backbone_coords: torch.Tensor, output_path: str, with_cb: bool = False):
     """
     Saving Backbone(N-Cα-CO) Cartesian coordinates into PDB file
@@ -97,3 +120,124 @@ ATOM  {serial+3:>5}  {atom_names[3]:<4}{aa_name} A{aa_idx+1:>4}    {backbone_coo
                 handle.write(f'ATOM  {serial:>5}  {cb_name:<4}{aa_name} A{aa_idx+1:>4}    {backbone_coords[aa_idx, 4, 0]:>8.3f}{backbone_coords[aa_idx, 4, 1]:>8.3f}{backbone_coords[aa_idx, 4, 2]:>8.3f}  1.00 20.00           C\n')
                 serial += 1
         handle.write('END\n')
+
+
+def save2cif(seq: Sequence[str], backbone_coords: torch.Tensor, output_path: str, sidechain_coords: Optional[torch.Tensor] = None, sidechain_coords_mask: Optional[torch.Tensor] = None, decimals=3, B_iso_or_equiv: Optional[torch.Tensor] = None, **kwargs):
+    """
+    Saving Backbone(N-Cα-CO) and side-chain Cartesian coordinates into mmCIF file
+
+    NOTE: current implementation does not allow any heavy atom of the backbone to be missed
+    (although it is easy to fix), -> TODO
+    but tolerant of missing side-chain heavy atoms
+
+    TODO: deal with OXT
+
+    Args:
+        seq (Sequence[str]): protein three-letter-code sequence
+        backbone_coords (torch.Tensor): shape(NumRes x NumAtom(i.e. 4) x 3)
+        sidechain_coords (Optional[torch.Tensor]): shape(NumRes x NumAtom(i.e. 10) x 3)
+        sidechain_coords_mask (Optional[torch.Tensor]): shape(NumRes x NumAtom(i.e. 10) x 3)
+        output_path (str): the output file path to save
+        decimals (int, optional): Defaults to 3.
+    """
+    protein_length = len(seq)
+    oneletter_seq = ''.join(AA_THREE2ONE_MOD[aa] if aa in AA_SIDECHAIN_ATOMS else f"({aa})" for aa in seq)
+    oneletter_seq_can = ''.join(AA_THREE2ONE_MOD.get(aa, 'X') for aa in seq)
+    assert protein_length == backbone_coords.shape[0]
+    backbone_coords = backbone_coords.detach().cpu().numpy()
+    seq_num = list(range(1, protein_length+1))
+    mon_id = list(seq)
+    cif_dict = {        
+        '_entity': {
+            'id': 1,
+            'type': 'polymer'
+        },
+        '_entity_poly_seq': {
+            'entity_id': [1]*protein_length,
+            'hetero': ['n']*protein_length,
+            'mon_id': mon_id,
+            'num': seq_num,
+        },
+        '_entity_poly': {
+            'entity_id': '1',
+            'type': 'polypeptide(L)',
+            'nstd_linkage': 'no',
+            'nstd_monomer': 'no',
+            'pdbx_seq_one_letter_code': oneletter_seq,
+            'pdbx_seq_one_letter_code_can': oneletter_seq_can,
+            'pdbx_strand_id': 'A',
+            'pdbx_target_identifier': '?'
+        },
+        '_pdbx_poly_seq_scheme': {  # TODO: deal with missing residues
+            'asym_id': ['A']*protein_length,
+            'auth_seq_num': seq_num,
+            'entity_id': [1]*protein_length,
+            'hetero': ['n']*protein_length,
+            'mon_id': mon_id,
+            'pdb_ins_code': ['.']*protein_length,
+            'pdb_mon_id': mon_id,
+            'pdb_seq_num': seq_num,
+            'pdb_strand_id': ['A']*protein_length,
+            'seq_id': seq_num
+        },
+        '_atom_site': {
+            'type_symbol': [],
+            'label_atom_id': [],
+            'label_comp_id': [],
+            'label_seq_id': [],
+            'Cartn_x': [],
+            'Cartn_y': [],
+            'Cartn_z': [],
+        }
+    }
+    if sidechain_coords is None:
+        for idx in range(protein_length):
+            cif_dict['_atom_site']['type_symbol'].extend(['N', 'C', 'C', 'O'])
+            cif_dict['_atom_site']['label_atom_id'].extend(['N', 'CA', 'C', 'O'])
+            cif_dict['_atom_site']['label_comp_id'].extend([seq[idx]]*4)
+            cif_dict['_atom_site']['label_seq_id'].extend([idx+1]*4)
+            cur_bb_coords_x, cur_bb_coords_y, cur_bb_coords_z = backbone_coords[idx].transpose(-1, -2).round(decimals).astype(str).tolist()
+            cif_dict['_atom_site']['Cartn_x'].extend(cur_bb_coords_x)
+            cif_dict['_atom_site']['Cartn_y'].extend(cur_bb_coords_y)
+            cif_dict['_atom_site']['Cartn_z'].extend(cur_bb_coords_z)
+    else:
+        sidechain_coords = sidechain_coords.detach().numpy()
+        sidechain_coords_mask = sidechain_coords_mask.detach().numpy()
+        assert protein_length == sidechain_coords.shape[0] == sidechain_coords_mask.shape[0]
+        for idx in range(protein_length):
+            cur_bb_coords_x, cur_bb_coords_y, cur_bb_coords_z = backbone_coords[idx].transpose(-1, -2).round(decimals).astype(str).tolist()
+            aa = seq[idx]
+            cur_mask = sidechain_coords_mask[idx]
+            cur_side_coords_x, cur_side_coords_y, cur_side_coords_z = sidechain_coords[idx][cur_mask].transpose(-1, -2).round(decimals).astype(str).tolist()
+            cur_atoms = [atom_i for atom_i ,mask_i in zip(AA_SIDECHAIN_ATOMS[aa], cur_mask) if mask_i]  # NOTE: this would allow missing side-chain heavy atoms
+            #cur_atoms = AA_SIDECHAIN_ATOMS[aa]
+            cur_atomtypes = [atom_i[0] if atom_i != 'SE' else 'SE' for atom_i in cur_atoms]
+            cur_side_atom_num = len(cur_side_coords_x)
+            assert cur_side_atom_num == len(cur_atoms)
+            cif_dict['_atom_site']['type_symbol'].extend(['N', 'C', 'C', 'O']+cur_atomtypes)
+            cif_dict['_atom_site']['label_atom_id'].extend(['N', 'CA', 'C', 'O']+cur_atoms)
+            cif_dict['_atom_site']['label_comp_id'].extend([aa]*(4+cur_side_atom_num))
+            cif_dict['_atom_site']['label_seq_id'].extend([idx+1]*(4+cur_side_atom_num))
+            cif_dict['_atom_site']['Cartn_x'].extend(cur_bb_coords_x+cur_side_coords_x)
+            cif_dict['_atom_site']['Cartn_y'].extend(cur_bb_coords_y+cur_side_coords_y)
+            cif_dict['_atom_site']['Cartn_z'].extend(cur_bb_coords_z+cur_side_coords_z)
+    num_lines = len(cif_dict['_atom_site']['Cartn_x'])
+    cif_dict['_atom_site']['group_PDB'] = ['ATOM']*num_lines
+    cif_dict['_atom_site']['id'] = list(range(1, num_lines+1))
+    cif_dict['_atom_site']['label_alt_id'] = ['.']*num_lines
+    cif_dict['_atom_site']['label_asym_id'] = ['A']*num_lines
+    cif_dict['_atom_site']['label_entity_id'] = [1]*num_lines
+    cif_dict['_atom_site']['pdbx_PDB_ins_code'] = ['?']*num_lines
+    cif_dict['_atom_site']['occupancy'] = ['1']*num_lines
+    if B_iso_or_equiv is None:
+        cif_dict['_atom_site']['B_iso_or_equiv'] = ['0']*num_lines
+    else:
+        assert B_iso_or_equiv.shape[0] == num_lines, (B_iso_or_equiv.shape[0], num_lines)
+        cif_dict['_atom_site']['B_iso_or_equiv'] = B_iso_or_equiv.detach().numpy().round(decimals).astype(str).tolist()
+    cif_dict['_atom_site']['pdbx_formal_charge'] = ['.']*num_lines
+    cif_dict['_atom_site']['pdbx_PDB_model_num'] = [1]*num_lines
+    cif_dict['_atom_site']['auth_atom_id'] = cif_dict['_atom_site']['label_atom_id']
+    cif_dict['_atom_site']['auth_comp_id'] = cif_dict['_atom_site']['label_comp_id']
+    cif_dict['_atom_site']['auth_seq_id'] = cif_dict['_atom_site']['label_seq_id']
+    cif_dict['_atom_site']['auth_asym_id'] = cif_dict['_atom_site']['label_asym_id']
+    CifFileWriter(output_path, **kwargs).write(cif_dict)

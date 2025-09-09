@@ -16,7 +16,7 @@
 # @Filename: frame.py
 # @Email:  zhuzefeng@stu.pku.edu.cn
 # @Author: Zefeng Zhu
-# @Last Modified: 2025-06-20 11:25:01 am
+# @Last Modified: 2025-09-09 04:21:45 pm
 from typing import Union, List, Optional
 import math
 import torch
@@ -76,6 +76,22 @@ class PeptideUnitFrame(FrameClass):
         #return cls.from_W_peptide_unit(cls.get_peptide_unit(n_coords, ca_coords, c_coords))
         coords_1, coords_2, coords_3 = ca_coords[:-1], c_coords[:-1], n_coords[1:]
         frame_q = roma.rotmat_to_unitquat(roma.special_gramschmidt(torch.stack([coords_3 - coords_2, coords_2 - coords_1], dim=2)))
+        with torch.no_grad():
+            coords_4 = ca_coords[1:]
+            is_trans = torch.einsum('km,km->k', coords_2 - coords_1, coords_4 - coords_3).ge(0)
+        return cls(coords_2, frame_q, is_trans)
+
+    @classmethod
+    def from_W_n_ca_c_hanson(cls, n_coords: torch.Tensor, ca_coords: torch.Tensor, c_coords: torch.Tensor):
+        coords_1, coords_2, coords_3 = n_coords[1:], ca_coords[:-1], c_coords[:-1]
+        frame_q = roma.rotmat_to_unitquat(roma.special_gramschmidt(torch.stack([coords_2 - coords_3, coords_1 - coords_2], dim=2)))
+        """
+        u = torch.nn.functional.normalize(coords_2 - coords_3, dim=-1)
+        w = torch.nn.functional.normalize(torch.cross(u, coords_1 - coords_2, dim=-1), dim=-1)
+        v = torch.nn.functional.normalize(torch.cross(w, u, dim=-1), dim=-1)
+        R = torch.stack([u, v, w], dim=-1)
+        frame_q = roma.rotmat_to_unitquat(R)
+        """
         with torch.no_grad():
             coords_4 = ca_coords[1:]
             is_trans = torch.einsum('km,km->k', coords_2 - coords_1, coords_4 - coords_3).ge(0)
@@ -597,11 +613,6 @@ class SidechainFrame(FrameClass):
     """
 
     NCAC_FRAME_ONE_AA = ("SER", "CYS", "SEC", "THR", "VAL", "MET", "GLN", "GLU")
-    try:
-        quat_cumprod = torch.vmap(quat_cumprod_sequential)
-    except AttributeError:
-        from functorch import vmap
-        quat_cumprod = vmap(quat_cumprod_sequential)
 
     @classmethod
     def from_W_3(cls, coords_1: torch.Tensor, coords_2: torch.Tensor, coords_3: torch.Tensor):
@@ -681,7 +692,7 @@ class SidechainFrame(FrameClass):
         frameone_ori[frame_rev_mask_exlude_gly] = cb_ca_c_frameone.ori
         anchor_atoms[frame_rev_mask_exlude_gly, 0] = cb_ca_c_frameone.to_local_pos(n_ca_c_frameone_s_W_cb)
         sc_relative_quat = torch.cat((frameone_quat.unsqueeze(1), sc_relative_quat), dim=1)
-        sc_glo_quat = cls.quat_cumprod(sc_relative_quat)
+        sc_glo_quat = quat_cumprod(sc_relative_quat, dim=1)
         
         frameone_ori_1 = quat_apply(sc_glo_quat[:, 0], anchor_atoms[:, 0]) + frameone_ori - quat_apply(sc_glo_quat[:, 1], anchor_atoms[:, 1])
         frame_joint = quat_apply(sc_glo_quat[:, 1], anchor_atoms[:, 2]) + frameone_ori_1
