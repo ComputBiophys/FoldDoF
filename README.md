@@ -8,6 +8,22 @@ Academy for Advanced Interdisciplinary Studies, Peking University </br>
 
 <div align="center"><img width=80% src="./assets/toc.png"></div>
 
+<details>
+<summary>Citation</summary>
+
+```bibtex
+@software{Zhu_FoldDoF_2022,
+  author  = {Zhu, Zefeng},
+  license = {Apache-2.0},
+  month   = {8},
+  title   = {{`FoldDoF`: Utilizing the Major Degrees of Freedom of Protein Backbone Conformation}},
+  url     = {https://github.com/NatureGeorge/FoldField},
+  year    = {2022}
+}
+```
+
+</details>
+
 ## Installation
 
 ```bash
@@ -53,11 +69,9 @@ avg_bb_coords = to_backbone(
 savebb2pdb(threeletter_seq, avg_bb_coords, output_path=f'3HSF.0.A.avg.pdb')
 ```
 
-For more usage examples, please turn to [./notebooks/](./notebooks/).
 
-e.g. [./notebooks/folddof.pymanopt.ipynb](https://nbviewer.org/github/NatureGeorge/folddof/blob/main/notebooks/folddof.pymanopt.ipynb) for optimizing the backbone conformation on $\mathrm{SO(3)}^N$ manifold via $\mathrm{SO(3)}$ connection:
-
-<video src="./assets/folddof.pymanopt.mp4" width="640" height="480" autoplay loop muted controls></video>
+> [!NOTE]  
+> For additional examples, refer to the [./notebooks/](./notebooks/). For instance, [folddof.pymanopt.ipynb](https://nbviewer.org/github/NatureGeorge/folddof/blob/main/notebooks/folddof.pymanopt.ipynb) provides a script for optimizing backbone conformations on the $\mathrm{SO(3)}^N$ manifold via $\mathrm{SO(3)}$ connection.
 
 ## For FrameFlow Variants
 
