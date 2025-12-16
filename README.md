@@ -107,7 +107,7 @@ Note: you can also specified your own model path.
 
 ```bash
 for num_timesteps in 10 20 50 100 200 300 400 500; do
-    python -W ignore experiments/inference_se3_flows.py -cn inference_unconditional bb_repr=original inference.ckpt_path="$frameflow_ckpt_path" inference.samples.samples_per_length=10 inference.num_gpus=4 inference.samples.seq_per_sample=8 inference.interpolant.sampling.num_timesteps="$num_timesteps" inference.samples.min_length=61 inference.samples.max_length=129 inference.samples.length_step=1 inference.samples.length_subset=null
+    python -W ignore experiments/inference_se3_flows.py -cn inference_unconditional bb_repr=original inference.ckpt_path="$frameflow_ckpt_path" inference.samples.samples_per_length=10 inference.num_gpus=4 inference.samples.seq_per_sample=8 inference.interpolant.sampling.num_timesteps="$num_timesteps" inference.samples.min_length=60 inference.samples.max_length=128 inference.samples.length_step=1 inference.samples.length_subset=null
 done
 ```
 
