@@ -16,7 +16,7 @@
 # @Filename: io.py
 # @Email:  zhuzefeng@stu.pku.edu.cn
 # @Author: Zefeng Zhu
-# @Last Modified: 2026-01-05 09:58:52 pm
+# @Last Modified: 2026-01-06 08:29:50 pm
 from typing import Sequence, Optional, Literal
 import gemmi
 import torch
@@ -136,8 +136,8 @@ def savebb2pdb(
     
     For proteins: N-Cα-CO atoms (and optionally CB)
     For RNA: P-O5'-C5'-C4'-C3'
-            /\
-         OP1  OP2
+            /\         |
+         OP1  OP2      O4'
     
     Args:
         seq (Sequence[str]): 
@@ -146,7 +146,7 @@ def savebb2pdb(
         backbone_coords (torch.Tensor): 
             For proteins: shape(NumRes x 4 x 3) for [N, CA, C, O] 
                           or shape(NumRes x 5 x 3) if with_cb=True
-            For RNA: shape(NumRes x 8 x 3) for [O3', P, O5', C5', C4', C3', OP1, OP2]
+            For RNA: shape(NumRes x 9 x 3) for [O3', P, O5', C5', C4', C3', OP1, OP2, O4']
         output_path (str): the output file path to save
         with_cb (bool): for proteins only, whether to include CB atoms
         mol_type (str): 'protein' or 'rna'
@@ -180,8 +180,8 @@ def savebb2pdb(
                 residue_number += 1
                 
         elif mol_type == 'rna':
-            atom_names = ["O3'", "P", "O5'", "C5'", "C4'", "C3'", "OP1", "OP2"]
-            atom_elements = ['O', 'P', 'O', 'C', 'C', 'C', 'O', 'O']
+            atom_names = ["O3'", "P", "O5'", "C5'", "C4'", "C3'", "OP1", "OP2", "O4'"]
+            atom_elements = ['O', 'P', 'O', 'C', 'C', 'C', 'O', 'O', 'O']
             
             rna_code_map = {
                 'A': '  A', 'U': '  U', 'G': '  G', 'C': '  C',
@@ -190,15 +190,14 @@ def savebb2pdb(
             
             for nt_idx in range(backbone_coords.shape[0]):
                 nt_1letter = seq[nt_idx]
-                nt_name = rna_code_map.get(nt_1letter, f' {nt_1letter:<2}')
-                for atom_idx in range(8):
+                nt_name = rna_code_map.get(nt_1letter, f'{nt_1letter:>3}')
+                for atom_idx in range(len(atom_names)):
                     x, y, z = backbone_coords[nt_idx, atom_idx].tolist()
                     atom_name = atom_names[atom_idx]
-                    padded_atom_name = atom_name.rjust(3) if "'" in atom_name else f" {atom_name:<2}"
-                    
+                    padded_atom_name = atom_name.ljust(3)
                     handle.write(
-                        f"ATOM  {serial:>5} {padded_atom_name} {nt_name} {chain_id}{residue_number:>4}    "
-                        f"{x:>8.3f}{y:>8.3f}{z:>8.3f}  1.00 20.00           {atom_elements[atom_idx]:>2}\n"
+                        f"ATOM  {serial:>5}  {padded_atom_name} {nt_name} {chain_id}{residue_number:>4}    "
+                        f"{x:>8.3f}{y:>8.3f}{z:>8.3f}  1.00 20.00          {atom_elements[atom_idx]:>2}\n"
                     )
                     serial += 1
                 

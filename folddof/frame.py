@@ -16,7 +16,7 @@
 # @Filename: frame.py
 # @Email:  zhuzefeng@stu.pku.edu.cn
 # @Author: Zefeng Zhu
-# @Last Modified: 2026-01-05 09:45:31 pm
+# @Last Modified: 2026-01-06 08:21:21 pm
 from typing import Union, List, Optional
 import math
 import torch
@@ -802,6 +802,13 @@ class RNAResidueUnitFrame(FrameClass):
     * C3'_{i}-O3'_{i} as X-axis
     * Y-axis that perpendicular to X-axis in the C4'_{i}-C3'_{i}-O3'_{i} plane
     * Z-axis that perpendicular to the C4'_{i}-C3'_{i}-O3'_{i} plane and form a right-handed coordinate system
+
+    Local Coordinate System IV for nucleotide defined as:
+        
+    * C4' as Origin
+    * C4'-C3' as X-axis
+    * Y-axis that perpendicular to X-axis in the C5'-C4'-C3' plane
+    * Z-axis that perpendicular to the C5'-C4'-C3' plane and form a right-handed coordinate system
     '''
 
     get_reconstruct_ori_base = PeptideUnitFrame.get_reconstruct_ori_base
@@ -809,7 +816,7 @@ class RNAResidueUnitFrame(FrameClass):
     @classmethod
     def form_frame(cls, o3b_coords: torch.Tensor, p_coords: torch.Tensor, o5b_coords: torch.Tensor, rot_repr_is_q: bool = True):
         func = roma.rotmat_to_unitquat if rot_repr_is_q else lambda x: x
-        return (p_coords, func(roma.special_gramschmidt(torch.stack([o5b_coords - p_coords, p_coords - o3b_coords], dim=2))))
+        return (p_coords, func(roma.special_gramschmidt(torch.stack([o5b_coords - p_coords, p_coords - o3b_coords], dim=-1))))
 
     @classmethod
     def from_W_bb(cls, o3b_coords: torch.Tensor, p_coords: torch.Tensor,   o5b_coords: torch.Tensor, 
@@ -870,7 +877,7 @@ class RNAResidueUnitFrame(FrameClass):
         return reconstruct_ori
 
     @classmethod
-    def to_W_batch_avg_backbone_addter_via_rot_trans(cls, frame_rot: torch.Tensor, frame_trans: torch.Tensor, dim: int = 1, rot_repr_is_q: bool = True):
+    def to_W_batch_avg_backbone_addter_via_rot_trans(cls, frame_rot: torch.Tensor, frame_trans: torch.Tensor, dim: int = 1, rot_repr_is_q: bool = True, frame_rot_IV: Optional[torch.Tensor] = None, frame_trans_IV: Optional[torch.Tensor] = None):
         '''
         convert global pose to full atom backbone coordinates
 
@@ -906,7 +913,7 @@ class RNAResidueUnitFrame(FrameClass):
         avg_o3b_im1 = to_W_pos(torch.index_select(frame_rot_I, dim, initial_index), torch.index_select(frame_trans_I, dim, initial_index), loc_o3b_im1_I.expand(*initial_shape, -1))
         avg_op2.index_copy_(dim=dim, index=initial_index, source=avg_o3b_im1)
         
-        return torch.stack([
+        avg_bb = [
                 frame_trans_I,                                           # P   
                 to_W_pos(frame_rot_I, frame_trans_I, loc_o5b_i_I),       # O5'
                 frame_trans_II,                                          # C5'   
@@ -916,4 +923,12 @@ class RNAResidueUnitFrame(FrameClass):
                 
                 to_W_pos(frame_rot_I, frame_trans_I, loc_op1_i_I),       # OP1 
                 avg_op2,                                                 # OP2
-            ], dim=dim+1) # BxLx8x3 (dim=1)
+        ]
+        
+        if frame_rot_IV is None or frame_trans_IV is None:
+            assert frame_rot_IV is None and frame_trans_IV is None
+            frame_trans_IV, frame_rot_IV = cls.form_frame(avg_bb[2], avg_bb[3], avg_bb[4], rot_repr_is_q=rot_repr_is_q)
+        loc_o4b_i_IV = torch.tensor(RNA_F_LOC[3]['o4b_i'], **tensor_kwargs).expand(*frame_rot_IV.shape[:(-1 if rot_repr_is_q else -2)], -1)
+        avg_o4b = to_W_pos(frame_rot_IV, frame_trans_IV, loc_o4b_i_IV)
+        avg_bb.append(avg_o4b)
+        return torch.stack(avg_bb, dim=dim+1) # BxLx9x3 (dim=1)

@@ -16,7 +16,7 @@
 # @Filename: data.py
 # @Email:  zhuzefeng@stu.pku.edu.cn
 # @Author: Zefeng Zhu
-# @Last Modified: 2026-01-05 08:33:10 pm
+# @Last Modified: 2026-01-06 08:04:19 pm
 import numpy as np
 
 
@@ -484,6 +484,16 @@ CIS_PEP_COUNT_STAT_SCOPE = {
 }
 
 
+NUCLEOTIDE_THREE2ONE_MOD = {
+    'U': 'U', 'T': 'T', 'A': 'A', 'C': 'C', 'G': 'G',
+    'OMU': 'U', '2MG': 'G', 'H2U': 'U', 'M2G': 'G', 
+    'OMC': 'C', 'YYG': 'G', 'PSU': 'U', '5MC': 'C',
+    '7MG': 'G', '5MU': 'U', '1MA': 'A', 'OMG': 'G', 
+    'G7M': 'G', '4OC': 'C', 'UR3': 'U', 'MA6': 'A',
+    'CCC': 'C', '5BU': 'U',
+}
+
+
 # RNAResidueUnitFrame
 ## Stat from 7UO0.C # TODO： renew
 RNA_F_LOC = [
@@ -516,4 +526,8 @@ RNA_F_LOC = [
          n9_is_c2b_endo=[-1.309360146522522, -0.7074111104011536, -3.3615505695343018],
          
          ),
+    dict(c5b_i=[-0.6571082472801208, -1.3559881448745728, 0.],
+         c3b_i=[1.5218682289123535, 0., 0.],
+         o4b_i=[-0.3613229990005493, 0.7087052464485168, 1.2127201557159424],
+         )
 ]
