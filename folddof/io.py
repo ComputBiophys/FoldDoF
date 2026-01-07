@@ -16,14 +16,14 @@
 # @Filename: io.py
 # @Email:  zhuzefeng@stu.pku.edu.cn
 # @Author: Zefeng Zhu
-# @Last Modified: 2026-01-06 08:29:50 pm
+# @Last Modified: 2026-01-07 12:00:38 pm
 from typing import Sequence, Optional, Literal
 import gemmi
 import torch
 from collections import defaultdict
 from pathlib import Path
 from pdbecif.mmcif_io import CifFileWriter
-from .data import AA_SIDECHAIN_ATOMS, AA_THREE2ONE_MOD
+from .data import AA_SIDECHAIN_ATOMS, AA_THREE2ONE_MOD, NUCLEOTIDE_THREE2ONE_MOD, NA_SIDECHAIN_ATOMS
 
 
 def wrap_res_get_atom(res, atom:str):
@@ -208,7 +208,17 @@ def savebb2pdb(
         handle.write('END\n')
 
 
-def save2cif(seq: Sequence[str], backbone_coords: torch.Tensor, output_path: str, sidechain_coords: Optional[torch.Tensor] = None, sidechain_coords_mask: Optional[torch.Tensor] = None, decimals=3, B_iso_or_equiv: Optional[torch.Tensor] = None, **kwargs):
+entity_type_dict = {
+    'protein': 'polypeptide(L)',
+    'D-protein': 'polypeptide(D)',
+    'rna': 'polyribonucleotide',
+    'dna': 'polydeoxyribonucleotide',
+    'na': 'polydeoxyribonucleotide/polyribonucleotide hybrid',
+    # 'carbohydrate-polymer': 'carbohydrate polymer',
+}
+
+
+def save2cif(seq: Sequence[str], backbone_coords: torch.Tensor, output_path: str, sidechain_coords: Optional[torch.Tensor] = None, sidechain_coords_mask: Optional[torch.Tensor] = None, decimals=3, B_iso_or_equiv: Optional[torch.Tensor] = None, mol_type: Literal['protein', 'rna'] = 'protein', **kwargs):
     """
     Saving Backbone(N-Cα-CO) and side-chain Cartesian coordinates into mmCIF file
 
@@ -218,6 +228,8 @@ def save2cif(seq: Sequence[str], backbone_coords: torch.Tensor, output_path: str
 
     TODO: deal with OXT
 
+    TODO: extend to multimer
+
     Args:
         seq (Sequence[str]): protein three-letter-code sequence
         backbone_coords (torch.Tensor): shape(NumRes x NumAtom(i.e. 4) x 3)
@@ -225,10 +237,30 @@ def save2cif(seq: Sequence[str], backbone_coords: torch.Tensor, output_path: str
         sidechain_coords_mask (Optional[torch.Tensor]): shape(NumRes x NumAtom(i.e. 10) x 3)
         output_path (str): the output file path to save
         decimals (int, optional): Defaults to 3.
+
+    polymeric molecules:
+            
+    * polypeptide(L)
+    * polypeptide(D) (e.g. 3UE7.A v.s. 3UE7.B)
+    * polydeoxyribonucleotide
+    * polyribonucleotide
+    * polydeoxyribonucleotide/polyribonucleotide hybrid (e.g. 6OZG)
     """
     protein_length = len(seq)
-    oneletter_seq = ''.join(AA_THREE2ONE_MOD[aa] if aa in AA_SIDECHAIN_ATOMS else f"({aa})" for aa in seq)
-    oneletter_seq_can = ''.join(AA_THREE2ONE_MOD.get(aa, 'X') for aa in seq)
+    if mol_type in ('protein', 'D-protein'):
+        oneletter_seq = ''.join(AA_THREE2ONE_MOD[aa] if aa in AA_SIDECHAIN_ATOMS else f"({aa})" for aa in seq)
+        oneletter_seq_can = ''.join(AA_THREE2ONE_MOD.get(aa, 'X') for aa in seq)
+        backbone_atomnames = ['N', 'CA', 'C', 'O']
+        backbone_atomtypes = ['N', 'C', 'C', 'O']
+        sidechain_atoms = AA_SIDECHAIN_ATOMS
+    elif mol_type in ('rna', 'dna', 'na'):
+        oneletter_seq = ''.join(aa if aa in 'AUCG' else f"({aa})" for aa in seq)
+        oneletter_seq_can = ''.join(NUCLEOTIDE_THREE2ONE_MOD.get(NUCLEOTIDE_THREE2ONE_MOD.get(aa, 'N'), 'N') for aa in seq)
+        backbone_atomnames = ["O3'", "P", "O5'", "C5'", "C4'", "C3'", "OP1", "OP2", "O4'"]
+        backbone_atomtypes = ['O', 'P', 'O', 'C', 'C', 'C', 'O', 'O', 'O']
+        sidechain_atoms = NA_SIDECHAIN_ATOMS
+    else:
+        raise ValueError(f"Unknown molecule type: {mol_type}.")
     assert protein_length == backbone_coords.shape[0]
     backbone_coords = backbone_coords.detach().cpu().numpy()
     seq_num = list(range(1, protein_length+1))
@@ -246,7 +278,7 @@ def save2cif(seq: Sequence[str], backbone_coords: torch.Tensor, output_path: str
         },
         '_entity_poly': {
             'entity_id': '1',
-            'type': 'polypeptide(L)',
+            'type': entity_type_dict[mol_type],
             'nstd_linkage': 'no',
             'nstd_monomer': 'no',
             'pdbx_seq_one_letter_code': oneletter_seq,
@@ -278,10 +310,10 @@ def save2cif(seq: Sequence[str], backbone_coords: torch.Tensor, output_path: str
     }
     if sidechain_coords is None:
         for idx in range(protein_length):
-            cif_dict['_atom_site']['type_symbol'].extend(['N', 'C', 'C', 'O'])
-            cif_dict['_atom_site']['label_atom_id'].extend(['N', 'CA', 'C', 'O'])
-            cif_dict['_atom_site']['label_comp_id'].extend([seq[idx]]*4)
-            cif_dict['_atom_site']['label_seq_id'].extend([idx+1]*4)
+            cif_dict['_atom_site']['type_symbol'].extend(backbone_atomtypes)
+            cif_dict['_atom_site']['label_atom_id'].extend(backbone_atomnames)
+            cif_dict['_atom_site']['label_comp_id'].extend([seq[idx]]*len(backbone_atomnames))
+            cif_dict['_atom_site']['label_seq_id'].extend([idx+1]*len(backbone_atomnames))
             cur_bb_coords_x, cur_bb_coords_y, cur_bb_coords_z = backbone_coords[idx].transpose(-1, -2).round(decimals).astype(str).tolist()
             cif_dict['_atom_site']['Cartn_x'].extend(cur_bb_coords_x)
             cif_dict['_atom_site']['Cartn_y'].extend(cur_bb_coords_y)
@@ -295,13 +327,13 @@ def save2cif(seq: Sequence[str], backbone_coords: torch.Tensor, output_path: str
             aa = seq[idx]
             cur_mask = sidechain_coords_mask[idx]
             cur_side_coords_x, cur_side_coords_y, cur_side_coords_z = sidechain_coords[idx][cur_mask].transpose(-1, -2).round(decimals).astype(str).tolist()
-            cur_atoms = [atom_i for atom_i ,mask_i in zip(AA_SIDECHAIN_ATOMS[aa], cur_mask) if mask_i]  # NOTE: this would allow missing side-chain heavy atoms
+            cur_atomnames = [atom_i for atom_i ,mask_i in zip(sidechain_atoms[aa], cur_mask) if mask_i]  # NOTE: this would allow missing side-chain heavy atoms
             #cur_atoms = AA_SIDECHAIN_ATOMS[aa]
-            cur_atomtypes = [atom_i[0] if atom_i != 'SE' else 'SE' for atom_i in cur_atoms]
+            cur_atomtypes = [atom_i[0] if atom_i != 'SE' else 'SE' for atom_i in cur_atomnames]
             cur_side_atom_num = len(cur_side_coords_x)
-            assert cur_side_atom_num == len(cur_atoms)
-            cif_dict['_atom_site']['type_symbol'].extend(['N', 'C', 'C', 'O']+cur_atomtypes)
-            cif_dict['_atom_site']['label_atom_id'].extend(['N', 'CA', 'C', 'O']+cur_atoms)
+            assert cur_side_atom_num == len(cur_atomnames)
+            cif_dict['_atom_site']['type_symbol'].extend(backbone_atomtypes+cur_atomtypes)
+            cif_dict['_atom_site']['label_atom_id'].extend(backbone_atomnames+cur_atomnames)
             cif_dict['_atom_site']['label_comp_id'].extend([aa]*(4+cur_side_atom_num))
             cif_dict['_atom_site']['label_seq_id'].extend([idx+1]*(4+cur_side_atom_num))
             cif_dict['_atom_site']['Cartn_x'].extend(cur_bb_coords_x+cur_side_coords_x)

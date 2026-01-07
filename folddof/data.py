@@ -16,7 +16,7 @@
 # @Filename: data.py
 # @Email:  zhuzefeng@stu.pku.edu.cn
 # @Author: Zefeng Zhu
-# @Last Modified: 2026-01-06 08:04:19 pm
+# @Last Modified: 2026-01-07 12:00:52 pm
 import numpy as np
 
 
@@ -485,12 +485,14 @@ CIS_PEP_COUNT_STAT_SCOPE = {
 
 
 NUCLEOTIDE_THREE2ONE_MOD = {
-    'U': 'U', 'T': 'T', 'A': 'A', 'C': 'C', 'G': 'G',
+    'U': 'U', 'A': 'A', 'C': 'C', 'G': 'G',
+    'DT': 'T', 'DA': 'A', 'DC': 'C', 'DG': 'G',
     'OMU': 'U', '2MG': 'G', 'H2U': 'U', 'M2G': 'G', 
     'OMC': 'C', 'YYG': 'G', 'PSU': 'U', '5MC': 'C',
     '7MG': 'G', '5MU': 'U', '1MA': 'A', 'OMG': 'G', 
     'G7M': 'G', '4OC': 'C', 'UR3': 'U', 'MA6': 'A',
     'CCC': 'C', '5BU': 'U',
+    'GFL': 'DG', 'TAF': 'DT', 'CFL': 'DC',
 }
 
 
@@ -531,3 +533,8 @@ RNA_F_LOC = [
          o4b_i=[-0.3613229990005493, 0.7087052464485168, 1.2127201557159424],
          )
 ]
+
+
+NA_SIDECHAIN_ATOMS = {
+    
+}
