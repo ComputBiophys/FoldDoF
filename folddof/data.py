@@ -16,7 +16,7 @@
 # @Filename: data.py
 # @Email:  zhuzefeng@stu.pku.edu.cn
 # @Author: Zefeng Zhu
-# @Last Modified: 2026-01-07 12:00:52 pm
+# @Last Modified: 2026-01-08 01:19:35 pm
 import numpy as np
 
 
@@ -491,7 +491,7 @@ NUCLEOTIDE_THREE2ONE_MOD = {
     'OMC': 'C', 'YYG': 'G', 'PSU': 'U', '5MC': 'C',
     '7MG': 'G', '5MU': 'U', '1MA': 'A', 'OMG': 'G', 
     'G7M': 'G', '4OC': 'C', 'UR3': 'U', 'MA6': 'A',
-    'CCC': 'C', '5BU': 'U',
+    'CCC': 'C', '5BU': 'U', 'GDP': 'G',
     'GFL': 'DG', 'TAF': 'DT', 'CFL': 'DC',
 }
 

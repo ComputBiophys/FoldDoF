@@ -16,7 +16,7 @@
 # @Filename: frame.py
 # @Email:  zhuzefeng@stu.pku.edu.cn
 # @Author: Zefeng Zhu
-# @Last Modified: 2026-02-22 05:02:09 pm
+# @Last Modified: 2026-02-23 02:34:00 pm
 from typing import Union, List, Optional
 import math
 import torch
@@ -152,6 +152,10 @@ class PeptideUnitFrame(FrameClass):
             deltas = quat_apply(frame_rot_beg, loc_ca_ia1) - quat_apply(frame_rot_end, loc_ca_i)
         else:
             deltas = torch.einsum('...ij,...j->...i', frame_rot_beg, loc_ca_ia1) - torch.einsum('...ij,...j->...i', frame_rot_end, loc_ca_i)
+        cumsum_deltas = torch.cumsum(deltas, dim=dim)
+        zeros_shape = list(deltas.shape); zeros_shape[dim] = 1
+        zeros = torch.zeros(zeros_shape, dtype=deltas.dtype, device=deltas.device)
+        return t0 + torch.cat([zeros, cumsum_deltas], dim=dim)
         return t0 + parallel_prefix_sum(deltas, dim=dim)
 
     @staticmethod
