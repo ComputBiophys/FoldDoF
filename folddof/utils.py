@@ -16,7 +16,7 @@
 # @Filename: frame.py
 # @Email:  zhuzefeng@stu.pku.edu.cn
 # @Author: Zefeng Zhu
-# @Last Modified: 2026-02-24 11:52:12 am
+# @Last Modified: 2026-04-14 05:34:17 pm
 import torch
 import roma
 import math
@@ -93,6 +93,27 @@ def get_internal_coordinates(backbone_coords):
         c_n_ca_anlge = planar_angle(backbone_coords[..., 2, :-1, :], backbone_coords[..., 0, 1:, :], backbone_coords[..., 1, 1:, :])
         ca_c_n_angle = planar_angle(backbone_coords[..., 1, :-1, :], backbone_coords[..., 2, :-1, :], backbone_coords[..., 0, 1:, :])
         return c_n, ca_c, n_ca, phi, psi, omega, n_ca_c_angle, c_n_ca_anlge, ca_c_n_angle
+
+
+def internal_to_relative_rotation(omega_im1: torch.Tensor, c_im1_n_i_ca_i: torch.Tensor, phi_im1: torch.Tensor, n_i_ca_i_c_i: torch.Tensor, psi_i: torch.Tensor, ca_i_c_i_n_ia1: torch.Tensor):
+    dihedrals = torch.stack([omega_im1, phi_im1, psi_i], dim=0)
+    planars   = torch.stack([c_im1_n_i_ca_i, n_i_ca_i_c_i, ca_i_c_i_n_ia1], dim=0)
+
+    cos_a = torch.cos(dihedrals)
+    sin_a = torch.sin(dihedrals)
+    betas = planars - torch.pi
+    cos_b = torch.cos(betas)
+    sin_b = torch.sin(betas)
+
+    zero = torch.zeros_like(cos_b)
+
+    row1 = torch.stack([cos_b,            -sin_b,             zero], dim=-1)
+    row2 = torch.stack([cos_a * sin_b,     cos_a * cos_b,    -sin_a], dim=-1)
+    row3 = torch.stack([sin_a * sin_b,     sin_a * cos_b,     cos_a], dim=-1)
+
+    M = torch.stack([row1, row2, row3], dim=-2)
+    M123 = M[0] @ M[1] @ M[2]
+    return M123
 
 
 def quat_apply(quaternion: torch.Tensor, point: torch.Tensor) -> torch.Tensor:
