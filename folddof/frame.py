@@ -16,13 +16,13 @@
 # @Filename: frame.py
 # @Email:  zhuzefeng@stu.pku.edu.cn
 # @Author: Zefeng Zhu
-# @Last Modified: 2026-02-26 11:24:29 am
+# @Last Modified: 2026-05-07 01:07:12 pm
 from typing import Union, List, Optional
 import math
 import torch
 import roma
 import numpy as np
-from .utils import quat_apply, quat_cumprod_sequential, quat_cumprod, dihedral, rad_unwrap, parallel_prefix_sum, clamp_tensor_norm, sample_cis_pep_loc
+from .utils import quat_apply, quat_cumprod, dihedral, rad_unwrap, parallel_prefix_sum, clamp_tensor_norm, sample_cis_pep_loc, planar_angle, internal_to_relative_rotation
 from .data import DEF_LOC, CB_LOC, SC_F_ANCHOR_LOC, AA_SIDECHAIN_ATOMS, SC_F_REMAIN_LOC, SC_F_LOC, CIS_PEP_COUNT_STAT_SCOPE, RNA_F_LOC
 
 
@@ -72,14 +72,15 @@ class PeptideUnitFrame(FrameClass):
         return peptide_unit
 
     @classmethod
-    def from_W_n_ca_c(cls, n_coords: torch.Tensor, ca_coords: torch.Tensor, c_coords: torch.Tensor):
+    def from_W_n_ca_c(cls, n_coords: torch.Tensor, ca_coords: torch.Tensor, c_coords: torch.Tensor, ret_cls: bool = True):
         #return cls.from_W_peptide_unit(cls.get_peptide_unit(n_coords, ca_coords, c_coords))
         coords_1, coords_2, coords_3 = ca_coords[:-1], c_coords[:-1], n_coords[1:]
-        frame_q = roma.rotmat_to_unitquat(roma.special_gramschmidt(torch.stack([coords_3 - coords_2, coords_2 - coords_1], dim=2)))
+        frame_q = roma.special_gramschmidt(torch.stack([coords_3 - coords_2, coords_2 - coords_1], dim=2))
+        if not ret_cls: return frame_q, coords_2
         with torch.no_grad():
             coords_4 = ca_coords[1:]
             is_trans = torch.einsum('km,km->k', coords_2 - coords_1, coords_4 - coords_3).ge(0)
-        return cls(coords_2, frame_q, is_trans)
+        return cls(coords_2, roma.rotmat_to_unitquat(frame_q), is_trans)
 
     @classmethod
     def from_W_n_ca_c_hanson(cls, n_coords: torch.Tensor, ca_coords: torch.Tensor, c_coords: torch.Tensor):
@@ -422,7 +423,7 @@ class PeptideUnitFrame(FrameClass):
         if loc_n_ia1 is not None:
             tmp = avg_loc_n_ia1.index_select(dim=dim, index=torch.tensor(0, device=frame_rot.device))
             avg_loc_n_ia1 = torch.cat((loc_n_ia1, tmp), dim=dim)
-            avg_loc_n_ia1_ = torch.cat((tmp, torch.narrow(loc_n_ia1, dim=dim, start=1, length=loc_n_ia1.shape[dim]-1)), dim=dim)
+            avg_loc_n_ia1_ = loc_n_ia1 # torch.cat((tmp, torch.narrow(loc_n_ia1, dim=dim, start=1, length=loc_n_ia1.shape[dim]-1)), dim=dim)
         else:
             avg_loc_n_ia1_ = torch.narrow(avg_loc_n_ia1, dim=dim, start=0, length=avg_loc_n_ia1.shape[dim]-1)
         if (clamp_loc_ca_ia1_wrt_n_ia1_sigma is not None) and (clamp_loc_ca_ia1_wrt_n_ia1_sigma >= 0):
@@ -447,7 +448,7 @@ class PeptideUnitFrame(FrameClass):
         tensor_kwargs = dict(dtype=frame_rot.dtype, device=frame_rot.device)
         avg_loc_o_i = torch.tensor(DEF_LOC['o_i'], **tensor_kwargs).repeat(*frame_rot.shape[:(-1 if rot_repr_is_q else -2)], 1)
         if loc_o_i is not None: avg_loc_o_i[1:] = loc_o_i
-        cter_o_loc = torch.zeros(3, **tensor_kwargs); cter_o_loc[0] = avg_loc_o_i[0, 0].norm(); avg_loc_o_i[-1, :] = cter_o_loc
+        # cter_o_loc = torch.zeros(3, **tensor_kwargs); cter_o_loc[0] = avg_loc_o_i[0, 0].norm(); avg_loc_o_i[-1, :] = cter_o_loc
         reconstruct_ori, avg_loc_n_ia1, loc_ca_i = cls.to_W_batch_avg_ori(frame_rot, loc_ca_ia1_wrt_n_ia1, rot_repr_is_q=rot_repr_is_q, clamp_loc_ca_ia1_wrt_n_ia1_sigma=clamp_loc_ca_ia1_wrt_n_ia1_sigma, loc_ca_i=loc_ca_i, loc_n_ia1=loc_n_ia1)
         if init_global_trans is not None: reconstruct_ori = reconstruct_ori + init_global_trans
         # to_W_pos = (lambda some_loc_coords: quat_apply(frame_rot.unsqueeze(0).expand(3, *frame_rot.shape), some_loc_coords) + reconstruct_ori.unsqueeze(0)) if rot_repr_is_q else (lambda some_loc_coords: torch.einsum('...ij,...j->...i', frame_rot.unsqueeze(0), some_loc_coords) + reconstruct_ori.unsqueeze(0))
@@ -596,13 +597,28 @@ class PeptideUnitFrame(FrameClass):
     def to_rottrans(cls, bb_coords: torch.Tensor, bb_masks: Optional[torch.Tensor] = None, rot_repr_is_q: bool = False):
         tensor_kwargs = dict(dtype=bb_coords.dtype, device=bb_coords.device)
         pep_frame = cls.from_W_n_ca_c(*bb_coords[:3])
-        nter_psi, cter_phi, cter_psi = pep_frame.get_ter_dihedral(*bb_coords[:4])
-        nter_frame_q = pep_frame.relative_quat_from_phi_psi(torch.pi, nter_psi)
+        
+        nter_psi = dihedral(bb_coords[0, 0], bb_coords[1, 0], bb_coords[2, 0], bb_coords[0, 1])
+        nter_n_ca_c = planar_angle(bb_coords[0, 0], bb_coords[1, 0], bb_coords[2, 0])
+        first_ca_c_n = planar_angle(bb_coords[1, 0], bb_coords[2, 0], bb_coords[0, 1])
+
+        ca_i = torch.tensor(DEF_LOC['ca_i_is_trans'], **tensor_kwargs)
+        c_i = torch.zeros_like(ca_i)
+        n_ia1 = torch.tensor(DEF_LOC['n_ia1'], **tensor_kwargs)
+        ca_ia1 = torch.tensor(DEF_LOC['ca_ia1_is_trans'], **tensor_kwargs)
+        nter_omega = dihedral(ca_i, c_i, n_ia1, ca_ia1)
+        nter_c_n_ca = planar_angle(c_i, n_ia1, ca_ia1)
+        nter_frame_q = roma.rotmat_to_unitquat(internal_to_relative_rotation(omega_im1=nter_omega, c_im1_n_i_ca_i=nter_c_n_ca, phi_im1=torch.tensor(torch.pi, **tensor_kwargs), n_i_ca_i_c_i=nter_n_ca_c, psi_i=nter_psi, ca_i_c_i_n_ia1=first_ca_c_n))
+        
+        #nter_psi, cter_phi, cter_psi = pep_frame.get_ter_dihedral(*bb_coords[:4])
+        #nter_frame_q = pep_frame.relative_quat_from_phi_psi(torch.pi, nter_psi)
         #cter_frame_q = pep_frame.relative_quat_from_phi_psi(cter_phi, cter_psi)
+        
         nter_frame_q = roma.quat_product(pep_frame.frame_q[0], roma.quat_conjugation(nter_frame_q))[None]
         #cter_frame_q = roma.quat_product(pep_frame.frame_q[-1], cter_frame_q)[None]
         cter_frame_q = roma.rotmat_to_unitquat(roma.special_gramschmidt(torch.stack([bb_coords[3, -1] - bb_coords[2, -1], bb_coords[2, -1] - bb_coords[1, -1]], dim=-1)))[None]
         ter_loc_ca_ia1_wrt_n_ia1= (torch.tensor(DEF_LOC['ca_ia1_is_trans'], **tensor_kwargs) - torch.tensor(DEF_LOC['n_ia1'], **tensor_kwargs))[None]
+        ter_loc_ca_ia1_wrt_n_ia1 = torch.nn.functional.normalize(ter_loc_ca_ia1_wrt_n_ia1, dim=-1) * torch.norm(bb_coords[0, 0] - bb_coords[1, 0])
         global_rots_q = torch.cat((nter_frame_q, pep_frame.frame_q, cter_frame_q))
         virtual_Cm1 = bb_coords[1, 0] - roma.unitquat_to_rotmat(nter_frame_q) @ torch.tensor(DEF_LOC['ca_ia1_is_trans'], **tensor_kwargs)
         global_trans = torch.cat((virtual_Cm1, bb_coords[2]))

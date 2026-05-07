@@ -16,11 +16,11 @@
 # @Filename: __init__.py
 # @Email:  zhuzefeng@stu.pku.edu.cn
 # @Author: Zefeng Zhu
-# @Last Modified: 2026-02-24 11:59:25 am
+# @Last Modified: 2026-05-07 10:19:35 pm
 import torch
 import numpy as np
 import roma
-from typing import Union, Optional, Literal
+from typing import Union, Optional, Literal, Sequence
 from enum import Enum
 from .frame import PeptideUnitFrame
 from .utils import mat_cumops, quat_cumprod
@@ -48,6 +48,15 @@ class to_bb_mode(Enum):
     Res_GlobalRots_GlobalTrans = 'residue_frame global_rots:L global_trans:L'
 
 
+def split_backbone(bb_coords: torch.Tensor, chain_lengths: Sequence[int]):
+    start = 0
+    bb_coords_list = []
+    for L in chain_lengths:
+        bb_coords_list.append(bb_coords[:, start:start + L])
+        start += L + 1
+    return bb_coords_list
+        
+
 def to_backbone(rots: torch.Tensor,
                 trans_or_loc_ca_ia1_wrt_n_ia1: torch.Tensor,
                 mode: Literal[to_bb_mode.Pep_GlobalRots_GlobalTrans, to_bb_mode.Pep_GlobalRots_IsoRots, to_bb_mode.Pep_RelativeRots_IsoRots],
@@ -57,6 +66,7 @@ def to_backbone(rots: torch.Tensor,
                 init_global_trans: Optional[torch.Tensor] = None,
                 rot_repr_is_q: bool = False,
                 clamp_loc_ca_ia1_wrt_n_ia1_sigma: Optional[float] = None,
+                chain_lengths: Optional[Sequence[int]] = None,
                 **kwargs,
                 ):
     '''
@@ -111,5 +121,6 @@ def to_backbone(rots: torch.Tensor,
         n_ca_c_frameone_s_W_cb = n_ca_c_frameone_s_W_cb[None]
         bb_coords = torch.cat((bb_coords, n_ca_c_frameone_s_W_cb[:, :, None]), dim=2)
     """
+    if chain_lengths is not None: return split_backbone(bb_coords, chain_lengths)
     
     return bb_coords # shape: B x L x 4 x 3

@@ -16,7 +16,7 @@
 # @Filename: frame.py
 # @Email:  zhuzefeng@stu.pku.edu.cn
 # @Author: Zefeng Zhu
-# @Last Modified: 2026-04-14 05:34:17 pm
+# @Last Modified: 2026-05-07 12:12:02 pm
 import torch
 import roma
 import math
@@ -58,9 +58,14 @@ def dihedral(point0: torch.Tensor, point1: torch.Tensor, point2: torch.Tensor, p
 def planar_angle(point0: torch.Tensor, point1: torch.Tensor, point2: torch.Tensor):
     b1 = point0 - point1
     b2 = point2 - point1
-    return torch.atan2(
-        torch.linalg.cross(b1, b2).norm(dim=-1),
-        torch.einsum('...km,...km->...k', b1, b2))
+    if len(b1.shape) > 1:
+        return torch.atan2(
+            torch.linalg.cross(b1, b2).norm(dim=-1),
+            torch.einsum('...km,...km->...k', b1, b2))
+    else:
+        return torch.atan2(
+            torch.linalg.cross(b1, b2).norm(dim=-1),
+            b1.dot(b2))
 
 
 def get_internal_coordinates(backbone_coords):
