@@ -16,7 +16,7 @@
 # @Filename: frame.py
 # @Email:  zhuzefeng@stu.pku.edu.cn
 # @Author: Zefeng Zhu
-# @Last Modified: 2026-05-07 01:07:12 pm
+# @Last Modified: 2026-05-08 02:39:06 pm
 from typing import Union, List, Optional
 import math
 import torch
@@ -448,7 +448,7 @@ class PeptideUnitFrame(FrameClass):
         tensor_kwargs = dict(dtype=frame_rot.dtype, device=frame_rot.device)
         avg_loc_o_i = torch.tensor(DEF_LOC['o_i'], **tensor_kwargs).repeat(*frame_rot.shape[:(-1 if rot_repr_is_q else -2)], 1)
         if loc_o_i is not None: avg_loc_o_i[1:] = loc_o_i
-        # cter_o_loc = torch.zeros(3, **tensor_kwargs); cter_o_loc[0] = avg_loc_o_i[0, 0].norm(); avg_loc_o_i[-1, :] = cter_o_loc
+        else: cter_o_loc = torch.zeros(3, **tensor_kwargs); cter_o_loc[0] = avg_loc_o_i[0, 0].norm(); avg_loc_o_i[-1, :] = cter_o_loc
         reconstruct_ori, avg_loc_n_ia1, loc_ca_i = cls.to_W_batch_avg_ori(frame_rot, loc_ca_ia1_wrt_n_ia1, rot_repr_is_q=rot_repr_is_q, clamp_loc_ca_ia1_wrt_n_ia1_sigma=clamp_loc_ca_ia1_wrt_n_ia1_sigma, loc_ca_i=loc_ca_i, loc_n_ia1=loc_n_ia1)
         if init_global_trans is not None: reconstruct_ori = reconstruct_ori + init_global_trans
         # to_W_pos = (lambda some_loc_coords: quat_apply(frame_rot.unsqueeze(0).expand(3, *frame_rot.shape), some_loc_coords) + reconstruct_ori.unsqueeze(0)) if rot_repr_is_q else (lambda some_loc_coords: torch.einsum('...ij,...j->...i', frame_rot.unsqueeze(0), some_loc_coords) + reconstruct_ori.unsqueeze(0))
@@ -637,6 +637,36 @@ class PeptideUnitFrame(FrameClass):
             pep_mask = torch.ones((bb_coords.shape[0]+1, ), dtype=torch.bool, device=bb_coords.device)
             loc_ca_ia1_wrt_n_ia1_mask = torch.ones((bb_coords.shape[0], ), dtype=torch.bool, device=bb_coords.device)
         return (global_rots_q if rot_repr_is_q else roma.unitquat_to_rotmat(global_rots_q)), global_trans, ret_loc_ca_ia1_wrt_n_ia1, pep_mask, loc_ca_ia1_wrt_n_ia1_mask
+
+    @staticmethod
+    def merge_backbones(global_rots: List[torch.Tensor], global_trans: List[torch.Tensor], isomers: List[torch.Tensor], 
+                    loc_ca_i: List[torch.Tensor], loc_n_ia1: List[torch.Tensor], loc_o_i: List[torch.Tensor],
+                    rot_repr_is_q: bool = False):
+        num_chains = len(global_rots)
+        tensor_kwargs = dict(device=global_rots[0].device, dtype=global_rots[0].dtype)
+        joint_loc_ca_i = torch.tensor(DEF_LOC['ca_i_is_trans'], **tensor_kwargs)
+        joint_loc_n_ia1 = torch.tensor(DEF_LOC['n_ia1'], **tensor_kwargs)
+        joint_loc_o_i = torch.tensor(DEF_LOC['o_i'], **tensor_kwargs)
+        for idx in range(num_chains-1):
+            if rot_repr_is_q:
+                joint_isomer = roma.quat_action(roma.quat_conjugation(global_rots[idx][-1]), ((roma.quat_action(global_rots[idx+1][0], joint_loc_ca_i) + global_trans[idx+1][0]) - global_trans[idx][-1])) - joint_loc_n_ia1
+            else:
+                joint_isomer = (global_rots[idx][-1].transpose(-1,-2) @ ((global_rots[idx+1][0] @ joint_loc_ca_i + global_trans[idx+1][0]) - global_trans[idx][-1])) - joint_loc_n_ia1
+            
+            loc = 1 + 2 * idx
+            isomers.insert(loc, joint_isomer[None])
+            loc_ca_i.insert(loc, joint_loc_ca_i[None])
+            loc_n_ia1.insert(loc, joint_loc_n_ia1[None])
+            loc_o_i.insert(loc, joint_loc_o_i[None])
+
+        global_rots = torch.cat(global_rots, dim=0)
+        global_trans = torch.cat(global_trans, dim=0)
+        isomers = torch.concat(isomers, dim=0)
+        loc_ca_i = torch.concat(loc_ca_i, dim=0)
+        loc_n_ia1 = torch.concat(loc_n_ia1, dim=0)
+        loc_o_i = torch.concat(loc_o_i, dim=0)
+        
+        return global_rots, global_trans, isomers, loc_ca_i, loc_n_ia1, loc_o_i
 
 
 class ResidueFrame(FrameClass):
